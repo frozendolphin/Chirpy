@@ -6,10 +6,12 @@ import (
 )
 
 func main() {
-	server := http.NewServeMux()
+	mux := http.NewServeMux()
+
+	mux.Handle("/", http.FileServer(http.Dir(".")))
 
 	server_struct := http.Server {
-		Handler: server,
+		Handler: mux,
 		Addr: ":8080",
 	}
 
