@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frozendolphin/Chirpy/internal/auth"
 	"github.com/frozendolphin/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -20,9 +21,9 @@ type chirpInfo struct {
 }
 
 func (cfg *apiConfig) createChirps(w http.ResponseWriter, r *http.Request) {
+	
 	type parameters struct {
 		Body string `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -30,6 +31,18 @@ func (cfg *apiConfig) createChirps(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find token", err)
+		return
+	}
+
+	user_id, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "jwt validation failed", err)
 		return
 	}
 
@@ -41,7 +54,7 @@ func (cfg *apiConfig) createChirps(w http.ResponseWriter, r *http.Request) {
 
 	cparams := database.CreateChirpParams{
 		Body: cleaned,
-		UserID: params.UserId,
+		UserID: user_id,
 	}
 	
 	chirp, err := cfg.db.CreateChirp(r.Context(), cparams)

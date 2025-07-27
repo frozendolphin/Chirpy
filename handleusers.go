@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/frozendolphin/Chirpy/internal/auth"
+	"github.com/frozendolphin/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -13,12 +15,15 @@ type usersInfo struct {
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email string `json:"email"`
+		Token string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 func (cfg *apiConfig) createUsers(w http.ResponseWriter, r *http.Request) {
 	
 	type mail struct {
 		Email string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	params := mail{}
@@ -30,7 +35,18 @@ func (cfg *apiConfig) createUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := cfg.db.CreateUser(r.Context(), params.Email)
+	hashedp, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't hash the password", err)
+		return
+	}
+
+	createUser_params := database.CreateUserParams {
+		Email: params.Email,
+		HashedPassword: hashedp,
+	}
+
+	user, err := cfg.db.CreateUser(r.Context(), createUser_params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create user", err)
 		return
