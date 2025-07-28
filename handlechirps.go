@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -103,10 +104,39 @@ func getCleanedBody(body string, badWords map[string]struct{}) string {
 
 func (cfg *apiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 
-	all_chirps, err := cfg.db.GetAllChirps(r.Context())
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "db request to get all chirps Failed", err)
-		return
+	
+	var all_chirps []database.Chirp
+	var err error
+
+	s := r.URL.Query().Get("author_id")
+	sortchirps := r.URL.Query().Get("sort")
+
+	if s != "" {
+
+		a_id, err := uuid.Parse(s)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "id cannot be parsed to uuid format", err)
+			return
+		}
+
+		all_chirps, err = cfg.db.GetChirpsFromAuthor(r.Context(), a_id)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, "chirp cannot be found", err)
+			return
+		}
+
+	} else {
+
+		all_chirps, err = cfg.db.GetAllChirps(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "db request to get all chirps Failed", err)
+			return
+		}
+
+	}
+
+	if sortchirps == "desc" {
+		sort.Slice(all_chirps, func(i, j int) bool {return all_chirps[i].CreatedAt.After(all_chirps[j].CreatedAt) })
 	}
 
 	var chirp_list []chirpInfo
@@ -124,6 +154,7 @@ func (cfg *apiConfig) getAllChirps(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	respondWithJSON(w, http.StatusOK, chirp_list)
+
 }
 
 func (cfg *apiConfig) getAChirp(w http.ResponseWriter, r *http.Request) {
@@ -156,3 +187,50 @@ func (cfg *apiConfig) getAChirp(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, res)
 } 
+
+func (cfg *apiConfig) deleteAChirp(w http.ResponseWriter, r *http.Request) {
+
+	c_id := r.PathValue("chirpID")
+	if c_id == "" {
+		respondWithError(w, http.StatusBadRequest, "no such wildcard in path", nil)
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find access token", err)
+		return
+	}
+
+	user_id, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "jwt validation failed", err)
+		return
+	}
+
+	u_id, err := uuid.Parse(c_id)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "couldn't convert id into uuid", err)
+		return
+	}
+
+	chirp, err := cfg.db.GetAChirp(r.Context(), u_id)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "couldn't find id in the server", err)
+		return
+	}
+
+	if chirp.UserID != user_id {
+		respondWithError(w, http.StatusForbidden, "given chirp is not yours", err)
+		return
+	}
+
+	err = cfg.db.DeleteAChirp(r.Context(), u_id)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "couldn't find id in the server", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+
+}
